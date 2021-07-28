@@ -2,7 +2,6 @@
 // YAML files as iptables configuration sources
 
 // Rust Core
-use std::ascii::AsciiExt;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -12,16 +11,18 @@ use std::process::exit;
 extern crate clap;
 extern crate yaml_rust;
 
-use clap::{Arg, App};
+use clap::{Arg, App, AppSettings};
 use yaml_rust::{Yaml, YamlLoader};
 
 fn main() {
 
     let app = App::new("iptables-compose")
         .version("1.1.0")
-        .global_version(true)
-        .unified_help_message(true)
-        .arg_required_else_help(true)
+        .settings(&[
+            AppSettings::UnifiedHelpMessage,
+            AppSettings::GlobalVersion,
+            AppSettings::ArgRequiredElseHelp
+        ])
         .about("\nYAML files as iptables configuration sources")
         .arg(Arg::with_name("CONFIG")
              .multiple(false)
