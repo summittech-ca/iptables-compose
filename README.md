@@ -11,12 +11,14 @@ web:
   ports:
     - port: 80
       allow: true
-      subnet:
+      src:
         - "10.1.0.0/24"
         - "10.2.0.0/24"
+      dst:
+        - "10.3.3.3/32"
     - port: 443
       allow: true
-      subnet:
+      src:
         - "10.1.0.0/24"
         - "10.2.0.0/24"
     - port: 8080

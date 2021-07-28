@@ -2,22 +2,44 @@ filter:
   input: drop
   forward: drop
   output: accept
-web:
+
+# Allow SSH in
+rules:
+  raw:
+    # Allow localhost traffic (this should be a default)
+    - iptables -A INPUT -i lo -j ACCEPT
+    - iptables -A OUTPUT -o lo -j ACCEPT
+    - iptables -A INPUT -p icmp -j ACCEPT
+    - iptables -A FORWARD -p icmp -j ACCEPT
+  matches:
+    # Allow previously established connections
+    - type: "INPUT"
+      match: conntrack
+      allow: true
+      ctstate: ["ESTABLISHED", "RELATED"]
+    - type: "FORWARD"
+      match: conntrack
+      allow: true
+      ctstate: ["ESTABLISHED", "RELATED"]
   ports:
-    - port: 80
+    # Allow DNS, LDAP to 100.5, 100.6
+    - type: "FORWARD"
+      ports: [53, 389]
+      protocol: "tcp"
+      dst: ["10.0.100.5", "10.0.100.6"]
+    - port: 22
       allow: true
-      subnet:
-        - "10.1.0.0/24"
-        - "10.2.0.0/24"
-    - port: 443
+      type: "INPUT"
+      src:
+        - "10.0.100.0/23"
+      dst:
+        - "10.0.16.2/32"
+    - port: 22
       allow: true
-      subnet:
-        - "10.1.0.0/24"
-        - "10.2.0.0/24"
-    - port: 8080
-      forward: 443
-openvpn:
-  ports:
-    - port: 1194
-      protocol: udp
-      allow: true
+      type: "FORWARD"
+      src:
+        - "10.0.100.0/23"
+      dst:
+        - "10.0.17.2/32"
+
+

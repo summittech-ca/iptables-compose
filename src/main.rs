@@ -154,6 +154,20 @@ fn parse_yaml(doc: &Yaml) {
     }
 }
 
+// fn opposite_direction(direction: &str) -> &str {
+//     match direction {
+//         "INPUT" => {
+//             return "OUTPUT";
+//         },
+//         "OUTPUT" => {
+//             return "INPUT";
+//         },
+//         _ => {
+//             return &direction;
+//         }
+//     }
+// }
+
 fn reset_rules() {
     let mut s:String = "iptables -F".to_string();
     s.push_str("\niptables -X");
@@ -170,6 +184,8 @@ fn parse_section(doc: &Yaml) {
             for (k, v) in h {
                 let k = k.as_str().unwrap();
                 match k {
+                    "raw" | "RAW" => parse_raw(v),
+                    "matches" | "MATCHES" => parse_match(v),
                     "ports" | "PORTS" => parse_ports(v),
                     _ => {
                         println!("Rules \"{}\" is not available", k);
@@ -180,6 +196,121 @@ fn parse_section(doc: &Yaml) {
         },
         _ => {
             println!("Configuration template format is invalid");
+            exit(1);
+        }
+    }
+}
+
+fn parse_raw(doc: &Yaml) {
+    match doc {
+        &Yaml::Array(ref v) => {
+            for x in v {
+                parse_raw_item(x);
+            }
+        },
+        _ => {
+            println!("Configuration \"matches\" format is invalid");
+            exit(1);
+        }
+    }
+}
+
+fn parse_raw_item(doc: &Yaml) {
+    match doc {
+        &Yaml::String(_) => {
+            println!("{}", &doc.as_str().unwrap());
+        },
+        // &Yaml::Hash(_) => {
+        //     println!(doc.as_str());
+        // },
+        _ => {
+            println!("Configuration \"raw\" item format is invalid");
+            exit(1);
+        }
+    }
+}
+
+fn parse_match(doc: &Yaml) {
+    match doc {
+        &Yaml::Array(ref v) => {
+            for x in v {
+                parse_match_item(x);
+            }
+        },
+        _ => {
+            println!("Configuration \"matches\" format is invalid");
+            exit(1);
+        }
+    }
+}
+
+fn parse_match_item(doc: &Yaml) {
+    match doc {
+        &Yaml::Hash(_) => {
+            if doc["match"].is_badvalue() {
+                println!("match is not defined");
+                exit(1);
+            }
+
+            let mut cmd:String = "iptables".to_string();
+            let direction = doc["type"].as_str().unwrap_or("input");
+            match direction {
+                "input" | "output" | "forward" | "INPUT" | "OUTPUT" | "FORWARD" => {
+                    cmd.push_str(" -I ");
+                    cmd.push_str(&direction.to_ascii_uppercase());
+                },
+                _ => {
+                    println!("Direction value is invalid");
+                    exit(1);
+                }
+            }
+
+            cmd.push_str(" -m ");
+            let match_type = doc["match"].as_str().unwrap();
+            cmd.push_str(&match_type);
+            match doc["state"] {
+                Yaml::Array(ref v) => {
+                    cmd.push_str(" --state ");
+                    let mut y: i32 = 0;
+                    for x in v {
+                        if y > 0 {
+                            cmd.push_str(",");
+                        }
+                        cmd.push_str(x.as_str().unwrap());
+                        y += 1;
+                    }
+                },
+                _ => {}
+            }
+            match doc["ctstate"] {
+                Yaml::Array(ref v) => {
+                    cmd.push_str(" --ctstate ");
+                    let mut y: i32 = 0;
+                    for x in v {
+                        if y > 0 {
+                            cmd.push_str(",");
+                        }
+                        cmd.push_str(x.as_str().unwrap());
+                        y += 1;
+                    }
+                },
+                _ => {}
+            }
+
+            let allow = doc["allow"].as_bool().unwrap_or(true);
+            cmd.push_str(" -j ");
+            match allow {
+                true => {
+                    cmd.push_str("ACCEPT");
+                },
+                _ => {
+                    cmd.push_str("DROP");
+                }
+            }
+            println!("{}", cmd);
+        },
+        _ => {
+            println!("Configuration \"states\" item format is invalid");
             exit(1);
         }
     }
@@ -202,31 +333,56 @@ fn parse_ports(doc: &Yaml) {
 fn parse_port_item(doc: &Yaml) {
     match doc {
         &Yaml::Hash(_) => {
-            if doc["port"].is_badvalue() {
-                println!("Port is not defined");
+            if doc["port"].is_badvalue() && doc["ports"].is_badvalue() {
+                println!("Port and ports are not defined");
                 exit(1);
             }
-            let port = doc["port"].as_i64();
-            match port {
-                Some(port) if port > -1 => (),
-                _ => {
-                    if port.unwrap() <= -1 {
-                        println!("Port has to be greater or equals to 0");
-                    } else {
-                        println!("Port is not invalid");
+            let mut port_str:String = "".to_string();
+            if !doc["port"].is_badvalue() {
+                let port = doc["port"].as_i64();
+                match port {
+                    Some(port) if port > -1 => (),
+                    _ => {
+                        if port.unwrap() <= -1 {
+                            println!("Port has to be greater or equals to 0");
+                        } else {
+                            println!("Port is not invalid");
+                        }
+                        exit(1);
                     }
-                    exit(1);
+                }
+                port_str.push_str(" --dport ");
+                port_str.push_str(&port.unwrap().to_string());
+            }
+            else if !doc["ports"].is_badvalue() {
+                match doc["ports"] {
+                    Yaml::Array(ref v) => {
+                        port_str.push_str(" -m multiport --dports ");
+                        let mut y: i32 = 0;
+                        for x in v {
+                            if y > 0 {
+                                port_str.push_str(",");
+                            }
+                            port_str.push_str(&x.as_i64().unwrap().to_string());
+                            y += 1;
+                        }
+                    },
+                    _ => {}
                 }
             }
             let mut cmd:String = "iptables".to_string();
+            let mut cmd_reverse:String = "iptables".to_string();
             if ! doc["forward"].is_badvalue() {
                 cmd.push_str(" -t nat -A PREROUTING");
             } else {
                 let direction = doc["type"].as_str().unwrap_or("input");
                 match direction {
                     "input" | "output" | "forward" | "INPUT" | "OUTPUT" | "FORWARD" => {
-                        cmd.push_str(" -I ");
+                        cmd.push_str(" -A ");
                         cmd.push_str(&direction.to_ascii_uppercase());
+                        cmd_reverse.push_str(" -I ");
+                        cmd_reverse.push_str(&direction.to_ascii_uppercase());
+                        // cmd_reverse.push_str(&opposite_direction(&direction.to_ascii_uppercase()));
                     },
                     _ => {
                         println!("Direction value is invalid");
@@ -234,15 +390,35 @@ fn parse_port_item(doc: &Yaml) {
                     }
                 }
             }
-            match doc["subnet"] {
+            match doc["src"] {
                 Yaml::Array(ref v) => {
                     cmd.push_str(" -s ");
+                    cmd_reverse.push_str(" -d ");
                     let mut y: i32 = 0;
                     for x in v {
                         if y > 0 {
                             cmd.push_str(",");
+                            cmd_reverse.push_str(",");
                         }
                         cmd.push_str(x.as_str().unwrap_or("0.0.0.0/0"));
+                        cmd_reverse.push_str(x.as_str().unwrap_or("0.0.0.0/0"));
+                        y += 1;
+                    }
+                },
+                _ => {}
+            }
+            match doc["dst"] {
+                Yaml::Array(ref v) => {
+                    cmd.push_str(" -d ");
+                    cmd_reverse.push_str(" -s ");
+                    let mut y: i32 = 0;
+                    for x in v {
+                        if y > 0 {
+                            cmd.push_str(",");
+                            cmd_reverse.push_str(",");
+                        }
+                        cmd.push_str(x.as_str().unwrap_or("0.0.0.0/0"));
+                        cmd_reverse.push_str(x.as_str().unwrap_or("0.0.0.0/0"));
                         y += 1;
                     }
                 },
@@ -250,19 +426,46 @@ fn parse_port_item(doc: &Yaml) {
             }
             let protocol = doc["protocol"].as_str().unwrap_or("tcp");
             match protocol {
-                "tcp" | "udp" | "TCP" | "UDP" => {
+                "tcp" | "TCP" => {
                     cmd.push_str(" -p ");
                     cmd.push_str(protocol);
-                    cmd.push_str(" -m ");
+                    // cmd.push_str(" -m state ");
+                    // cmd.push_str(" --state NEW ");
+                    cmd_reverse.push_str(" -p ");
+                    cmd_reverse.push_str(protocol);
+                },
+                "udp" | "UDP" => {
+                    cmd.push_str(" -p ");
                     cmd.push_str(protocol);
+                    cmd_reverse.push_str(" -p ");
+                    cmd_reverse.push_str(protocol);
+
+                    // cmd.push_str(" -m ");
+                    // cmd.push_str(protocol);
                 },
                 _ => {
                     println!("Protocol value is invalid");
                     exit(1);
                 }
             }
-            cmd.push_str(" --dport ");
-            cmd.push_str(&port.unwrap().to_string());
+            match doc["state"] {
+                Yaml::Array(ref v) => {
+                    cmd.push_str(" -m state --state ");
+                    let mut y: i32 = 0;
+                    for x in v {
+                        if y > 0 {
+                            cmd.push_str(",");
+                        }
+                        cmd.push_str(x.as_str().unwrap());
+                        y += 1;
+                    }
+                },
+                _ => {}
+            }
+
+            cmd.push_str(&port_str);
+            // cmd_reverse.push_str(" --sport ");
+            // cmd_reverse.push_str(&port.unwrap().to_string());
             if ! doc["forward"].is_badvalue() {
                 let forward = doc["forward"].as_i64();
                 match forward {
@@ -281,16 +484,23 @@ fn parse_port_item(doc: &Yaml) {
             } else {
                 let allow = doc["allow"].as_bool().unwrap_or(true);
                 cmd.push_str(" -j ");
+                cmd_reverse.push_str(" -j ");
                 match allow {
                     true => {
                         cmd.push_str("ACCEPT");
+                        cmd_reverse.push_str("ACCEPT");
                     },
                     _ => {
                         cmd.push_str("DROP");
+                        cmd_reverse.push_str("DROP");
+                        cmd_reverse.clear();
                     }
                 }
             }
             println!("{}", cmd);
+            // if cmd_reverse.len() > 0 {
+            //     println!("{}", cmd_reverse);
+            // }
         },
         _ => {
             println!("Configuration \"ports\" item format is invalid");
