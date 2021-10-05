@@ -360,11 +360,26 @@ fn parse_port_item(doc: &Yaml) {
                         port_str.push_str(" -m multiport --dports ");
                         let mut y: i32 = 0;
                         for x in v {
-                            if y > 0 {
-                                port_str.push_str(",");
+                            match x {
+                                &Yaml::String(ref str) => {
+                                    if y > 0 {
+                                        port_str.push_str(",");
+                                    }
+                                    port_str.push_str(str);
+                                    y += 1;
+                                }
+                                &Yaml::Integer(ref n) => {
+                                    if y > 0 {
+                                        port_str.push_str(",");
+                                    }
+                                    port_str.push_str(&n.to_string());
+                                    y += 1;
+                                }
+                                _ => {
+                                    println!("Invalid ports, must be string of port range type 'port1:port2' or integer");
+                                    exit(1);
+                                }
                             }
-                            port_str.push_str(&x.as_i64().unwrap().to_string());
-                            y += 1;
                         }
                     },
                     _ => {}
